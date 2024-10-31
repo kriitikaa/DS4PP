@@ -1,0 +1,381 @@
+---
+title: "Demographic Study of Migration in Chitwan, Nepal"
+author: "Kirtika Kandel"
+date: "October 26, 2024"
+format: html
+editor: visual
+---
+
+This study leverages data from the [**Chitwan Valley Family Study (CVFS)**](https://cvfs.isr.umich.edu/about/) particularly **DS17: Event Registry Survey Data 2015-2017** to examine the demographic drivers of migration in Nepal, focusing on household size, ethnicity, and age group dynamics. CVFS, a longitudinal study launched in 1995, systematically tracks individuals and families in the Chitwan Valley to observe family changes over time. Located in a region transformed from isolated farmland into a major transportation hub, Chitwan represents a unique cultural intersection within Nepal, hosting diverse communities with distinct ethnic and socio-economic backgrounds. The study explores migration patterns across various demographic groups, revealing key trends that inform policy strategies aimed at addressing the needs of different ethnicities and household types. Insights from this analysis are valuable for shaping inclusive policies that enhance social support, mitigate migration pressures, and contribute to sustainable community development across Nepal.
+
+```{r}
+#| warning: false
+#| message: false
+#load necessary library
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+```
+
+```{r}
+#load required dataset
+migration <- read.csv("/Users/kirtikakandel/Desktop/R Midterm/CSV/migration.csv")
+household <- read.csv("/Users/kirtikakandel/Desktop/R Midterm/CSV/household.csv")
+
+#head(migration)
+#head(household)
+```
+
+The data preparation process involves three main steps:
+
+1.  **Column Selection**: Only relevant columns related to household ID, outmigration counts, household size, and gender-based counts (male and female) are selected from the dataset to streamline the analysis.
+
+2.  **Handling Missing Values**: Columns with over 80% missing data are removed, and any rows with missing values are also excluded to ensure data completeness and reliability.
+
+3.  **Calculating Migration Rate**: New columns are created to calculate aggregate metrics. Specifically, the total outmigration count and household size are aggregated, and the migration rate is calculated by dividing the total outmigration by the household size, then multiplying by 100 to express it as a percentage. This provides a standardized migration metric for further analysis.
+
+```{r}
+#| warning: false
+#| message: false
+#select relevant columns
+selected_migration <- migration %>%
+  select(
+    HHID,
+    starts_with("COUNT_OUTNEPAL"),  # Outmigration counts
+    starts_with("COUNT_HHMEM"),      # Household size
+    starts_with("COUNT_FEMALE"),     # Female count
+    starts_with("COUNT_MALE")        # Male count
+  )
+
+#handle missing values by dropping columns with >80% missing values and rows with missing data
+selected_migration <- selected_migration %>%
+  select(where(~ mean(is.na(.)) < 0.8)) %>%
+  drop_na()
+
+#calculate aggregate migration rate as new columns
+selected_migration <- selected_migration %>%
+  rowwise() %>%
+  mutate(
+    total_outnepal = sum(c_across(starts_with("COUNT_OUTNEPAL")), na.rm = TRUE),
+    total_hhmem = sum(c_across(starts_with("COUNT_HHMEM")), na.rm = TRUE),
+    migration_rate = (total_outnepal / total_hhmem) * 100
+  )
+```
+
+#### Total Migration by Year (2063-2072)
+
+This analysis shows the trend in migration over a decade (2063-2072 in the Nepali calendar).
+
+```{r}
+#| warning: false
+#| message: false
+# Convert migration (MIG) columns to long format using gather()
+migration_long <- household %>%
+  gather(key = "Year", value = "Migrants", MIG63:MIG72)
+
+# Extract years from column names
+migration_long <- migration_long %>%
+  mutate(Year = as.numeric(gsub("MIG", "", Year)))
+
+# Summarize total migrants by year
+migration_summary <- migration_long %>%
+  group_by(Year) %>%
+  summarise(Total_Migrants = sum(Migrants, na.rm = TRUE))
+
+# Plot migration trend as a bar graph
+ggplot(migration_summary, aes(x = as.factor(Year), y = Total_Migrants, fill = Total_Migrants)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  scale_fill_gradient(low = "#6baed6", high = "#2171b5") +  # Blue gradient for consistency
+  labs(
+    title = "Total Migration by Year (2063-2072)",
+    x = "Year (Nepali Calendar)",
+    y = "Total Migrants"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title.x = element_text(size = 14, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 14, margin = margin(r = 10)),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    panel.grid.major = element_line(color = "gray90", size = 0.4),
+    panel.grid.minor = element_blank()
+  )
+```
+
+By counting the total number of people migrating each year, a clear upward trend is observed, with the migration numbers steadily increasing as the years progress. This rise may suggest growing factors pushing individuals to migrate, possibly related to economic, social, or environmental changes within the region.
+
+#### Gender-based Migration
+
+The analysis examines the total migration by gender, breaking down migration counts into male and female categories to see the distribution across these groups. Using a pie chart, it visually represents how many males and females have migrated, with each segment's size showing the proportion of each gender.
+
+```{r}
+#| warning: false
+#| message: false
+# Sum male and female data
+gender_data <- selected_migration %>%
+  rowwise() %>%
+  mutate(
+    total_male = sum(c_across(starts_with("COUNT_MALE")), na.rm = TRUE),
+    total_female = sum(c_across(starts_with("COUNT_FEMALE")), na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  pivot_longer(cols = c(total_male, total_female), names_to = "Gender", values_to = "Count")
+
+# Rename "total_male" and "total_female" to descriptive labels
+gender_data <- gender_data %>%
+  mutate(Gender = recode(Gender, "total_male" = "Male Migration", "total_female" = "Female Migration"))
+
+# Calculate percentages for labeling
+gender_data <- gender_data %>%
+  group_by(Gender) %>%
+  summarise(Total_Count = sum(Count)) %>%
+  mutate(Percentage = round(Total_Count / sum(Total_Count) * 100, 1))
+
+# Create the refined pie chart
+ggplot(gender_data, aes(x = "", y = Total_Count, fill = Gender)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  labs(title = "Gender-Based Migration Counts") +
+  scale_fill_manual(values = c("Male Migration" = "#6baed6", "Female Migration" = "#fdae61")) +  # Consistent color theme
+  theme_void() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    legend.text = element_text(size = 12)
+  ) +
+  geom_text(aes(label = paste0(Percentage, "%")), position = position_stack(vjust = 0.5), size = 5, color = "white")
+
+```
+
+The findings reveal the relative contribution of male and female migrants, offering a clear view of gender differences in migration patterns. This approach makes it easy to compare and understand gender-based migration at a glance.
+
+#### Migration Trends by Household Size (2063-2072)
+
+The analysis looks at migration patterns over time from year 2063 BS to 2072 BS, focusing on how different household sizes contribute to the total number of migrants each year. A stacked bar chart is used to show the migration count for each year, with segments representing small, medium, and large households.
+
+```{r}
+#| warning: false
+#| message: false
+# calculate household size based on available age columns
+household <- household %>%
+  mutate(Household_Size = rowSums(!is.na(select(., starts_with("AGE")))))
+
+# convert migration (MIG) columns to long format
+migration_long <- household %>%
+  gather(key = "Year", value = "Migrants", MIG63:MIG72)
+
+# extract year from the "MIG" column names
+migration_long <- migration_long %>%
+  mutate(Year = as.numeric(gsub("MIG", "", Year)))
+
+# summarize total migrants by year and household size
+migration_summary <- migration_long %>%
+  group_by(Year, Household_Size) %>%
+  summarise(Total_Migrants = sum(Migrants, na.rm = TRUE), .groups = "drop")
+
+# plot migration trend as a stacked bar graph, separated by household size
+ggplot(migration_summary, aes(x = as.factor(Year), y = Total_Migrants, fill = as.factor(Household_Size))) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(
+    values = c("1" = "#6baed6", "2" = "#9ecae1", "3" = "#c6dbef"),
+    labels = c("1" = "Small", "2" = "Medium", "3" = "Large")
+  ) +
+  labs(
+    title = "Migration Trends by Household Size (2063-2072)",
+    x = "Year (Nepali Calendar)",
+    y = "Total Migrants",
+    fill = "Household Size"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray40", size = 12),
+    axis.title.x = element_text(size = 14, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 14, margin = margin(r = 10)),
+    axis.text = element_text(size = 12),
+    legend.position = "bottom",
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 11),
+    panel.grid.major = element_line(color = "gray90", size = 0.4),
+    panel.grid.minor = element_blank()
+  )
+```
+
+The analysis reveals patterns that indicate a possible relationship between the number of household members and migration rates. Larger households tend to have higher total migration counts, which could be due to a combination of economic pressures, employment opportunities, or family dynamics that prompt members to seek work or education outside the household. Smaller households show lower migration numbers, likely reflecting fewer family members available to migrate or a stronger reliance on local resources.
+
+This pattern suggests that as households grow, they may face increased economic demands, encouraging members to migrate for financial support. It also points to the possibility that larger families may diversify their income sources by sending some members abroad or to urban areas.
+
+#### Total Migration by Age Group
+
+The analysis looked at migration counts across different age groups to identify patterns in migration behavior.
+
+```{r}
+#| warning: false
+#| message: false
+# Aggregate age group counts over time
+age_data <- migration %>%
+  summarise(
+    Age_0_10 = sum(c_across(starts_with("COUNT_AGE0_10")), na.rm = TRUE),
+    Age_11_20 = sum(c_across(starts_with("COUNT_AGE11_20")), na.rm = TRUE),
+    Age_21_30 = sum(c_across(starts_with("COUNT_AGE21_30")), na.rm = TRUE),
+    Age_31_40 = sum(c_across(starts_with("COUNT_AGE31_40")), na.rm = TRUE),
+    Age_41_50 = sum(c_across(starts_with("COUNT_AGE41_50")), na.rm = TRUE),
+    Age_51_60 = sum(c_across(starts_with("COUNT_AGE51_60")), na.rm = TRUE),
+    Age_61_70 = sum(c_across(starts_with("COUNT_AGE61_70")), na.rm = TRUE),
+    Age_71_up = sum(c_across(starts_with("COUNT_AGE71_UP")), na.rm = TRUE)
+  ) %>%
+  pivot_longer(cols = everything(), names_to = "AgeGroup", values_to = "Count")
+
+# Custom labels for age groups
+age_labels <- c("Age_0_10" = "0-10", "Age_11_20" = "11-20", "Age_21_30" = "21-30",
+                "Age_31_40" = "31-40", "Age_41_50" = "41-50", "Age_51_60" = "51-60",
+                "Age_61_70" = "61-70", "Age_71_up" = "71+")
+
+# Refined color scheme using shades of blue for consistency
+age_colors <- c("Age_0_10" = "#6baed6", "Age_11_20" = "#4292c6", "Age_21_30" = "#2171b5",
+                "Age_31_40" = "#08519c", "Age_41_50" = "#08306b", "Age_51_60" = "#6baed6",
+                "Age_61_70" = "#4292c6", "Age_71_up" = "#2171b5")
+
+# Plot age-based migration counts with custom labels and colors
+ggplot(age_data, aes(x = Count, y = factor(AgeGroup, levels = c("Age_0_10", "Age_11_20", "Age_21_30", 
+                                                                 "Age_31_40", "Age_41_50", "Age_51_60", 
+                                                                 "Age_61_70", "Age_71_up")),
+                     fill = AgeGroup)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::comma(Count)), hjust = -0.1, size = 3) +  # Adjusted label spacing
+  scale_fill_manual(values = age_colors, labels = age_labels) +
+  scale_y_discrete(labels = age_labels) +
+  labs(
+    title = "Total Migration by Age Group",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.y = element_text(size = 8),
+    panel.grid = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(10, 10, 10, 10)
+  )
+```
+
+The findings show that people aged 21-30 have the highest migration rates, suggesting this age group is the most likely to migrate, possibly due to factors like job opportunities or education. Migration rates gradually decrease in older age groups, with the lowest numbers among those aged 61 and above. This pattern highlights that migration is more common among younger individuals, particularly in early adulthood.
+
+#### Migration Trends by Year and Ethnicity
+
+The analysis tracks migration trends over several years, focusing on different ethnic groups. By looking at yearly migration counts for each group, it becomes clear which groups had more people migrating and how these numbers changed over time.
+
+```{r}
+#| warning: false
+#| message: false
+
+# Convert migration (MIG) columns to long format
+migration_long <- household %>%
+  gather(key = "Year", value = "Migrants", MIG63:MIG72)
+
+# Extract year from the "MIG" column names
+migration_long <- migration_long %>%
+  mutate(Year = as.numeric(gsub("MIG", "", Year)))
+
+# Summarize total migrants by year and ethnicity
+migration_summary <- migration_long %>%
+  group_by(Year, ETHNICITY) %>%
+  summarise(Total_Migrants = sum(Migrants, na.rm = TRUE))
+
+# Plot with refined settings
+ggplot(migration_summary, aes(x = Year, y = Total_Migrants, color = ETHNICITY, group = ETHNICITY)) +
+  geom_line(linewidth = 1) +                     # Thicker lines for visibility
+  geom_point(size = 3) +                            # Larger points on each year
+  labs(
+    title = "Migration Trends by Ethnicity Over Years",
+    subtitle = "Trends in migration numbers segmented by ethnicity from 2063 to 2072",
+    x = "Year (Nepali Calendar)",
+    y = "Total Migrants",
+    color = "Ethnicity"
+  ) +
+  scale_color_manual(
+    values = c(
+      "(1) Brahmin/Chhetri" = "#FF6F61",
+      "(2) Hill Janajati" = "#FFD700",
+      "(3) Dalit" = "#4CAF50",
+      "(4) Newar" = "#2196F3",
+      "(5) Terai Janajati" = "#9C27B0",
+      "(6) Others" = "#795548"
+    )
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray50"),
+    panel.grid.major = element_line(color = "gray90", size = 0.4),
+    panel.grid.minor = element_blank()
+  ) +
+  geom_text(
+    aes(label = ifelse(Year == max(Year), Total_Migrants, "")), 
+    hjust = -0.1, 
+    size = 3, 
+    show.legend = FALSE,
+    color = "black"
+  ) + 
+  coord_cartesian(clip = "off")  # Avoids cutting off text
+
+
+
+```
+
+The graph highlights a sharp increase in migration for the Brahmin/Chhetri group, especially around the middle of the time period, followed by steady growth. Other groups, like Hill Janajati and Dalit, also show gradual increases, although at lower levels.
+
+#### Migration Rate by Household Size
+
+```{r}
+#| warning: false
+#| message: false
+
+# aggregate data for each household
+household_migration_data <- migration %>%
+  rowwise() %>%
+  mutate(
+    Total_Household_Members = sum(c_across(starts_with("COUNT_HHMEM")), na.rm = TRUE),
+    Total_Migration_Away = sum(c_across(starts_with("COUNT_AWAY")), na.rm = TRUE),
+    Total_Migration_OutNepal = sum(c_across(starts_with("COUNT_OUTNEPAL")), na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# calculate the migration rate for each household
+household_migration_data <- household_migration_data %>%
+  mutate(
+    Migration_Rate = (Total_Migration_Away + Total_Migration_OutNepal) / Total_Household_Members * 100
+  )
+
+#visualize
+ggplot(household_migration_data, aes(x = Total_Household_Members, y = Migration_Rate)) +
+  geom_point(color = "#1f77b4", alpha = 0.5, size = 0.8) +  # Softer blue color with reduced point size
+  geom_smooth(method = "loess", color = "#d62728", size = 1.2, se = FALSE) +  # Slightly thicker red trend line
+  scale_x_log10() +  # Log scale for x-axis
+  labs(
+    title = "Migration Rate by Household Size",
+    subtitle = "Analysis of migration rate as household size increases (Log scale)",
+    x = "Total Household Members (Log Scale)",
+    y = "Migration Rate (%)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray40", size = 12),
+    panel.grid.major = element_line(color = "gray85", size = 0.5),
+    panel.grid.minor = element_line(color = "gray90", size = 0.2),
+    axis.title.x = element_text(size = 14, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 14, margin = margin(r = 10)),
+    axis.text = element_text(size = 12)
+  )
+```
+
+Further updates of this project can be found at [Kirtika's GitHub](https://github.com/kriitikaa/DS4PP).
